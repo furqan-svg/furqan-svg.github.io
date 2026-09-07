@@ -1,0 +1,606 @@
+// loader.js
+
+// Skill tags per repo: { label, category }
+// Categories: ml | nlp | analytics | engineering | cloud
+const REPO_TAGS = {
+    'foundational-learning-rescue': [
+        { label: 'React.js', category: 'engineering' },
+        { label: 'Vite', category: 'engineering' },
+        { label: 'Node.js', category: 'engineering' },
+        { label: 'Express', category: 'engineering' },
+        { label: 'MongoDB', category: 'engineering' },
+        { label: 'Adaptive Learning', category: 'ml' },
+        { label: 'PWA', category: 'engineering' },
+    ],
+    'Kebab-Terminal': [
+        { label: 'React.js', category: 'engineering' },
+        { label: 'Vite', category: 'engineering' },
+        { label: 'JavaScript', category: 'engineering' },
+        { label: 'HTML5', category: 'engineering' },
+        { label: 'CSS3', category: 'engineering' },
+        { label: 'ESLint', category: 'engineering' },
+    ],
+    'furqan-svg.github.io': [
+        { label: 'JavaScript', category: 'engineering' },
+        { label: 'HTML5', category: 'engineering' },
+        { label: 'CSS3', category: 'engineering' },
+        { label: 'i18n', category: 'engineering' },
+        { label: 'GitHub API', category: 'engineering' },
+        { label: 'Responsive Design', category: 'engineering' },
+    ],
+};
+
+
+// ─── Curated display metadata (for the Editorial projects cards) ───
+// name → { title, desc, cats: [string] }
+const PROJECT_META = {
+    'foundational-learning-rescue': {
+        title: 'Foundational Learning Rescue',
+        desc: 'Offline-first, AI-adaptive reading and math practice app for children behind on foundational skills. Runs a short diagnostic to pinpoint the exact skill gap, then delivers targeted daily practice that adapts as the child improves. Built as a team hackathon project.',
+        cats: ['AI', 'FULL STACK', 'HACKATHON'],
+    },
+    'Kebab-Terminal': {
+        title: 'Kebab Kafe — Restaurant Website',
+        desc: 'A modern, customer-facing website for Kebab Kafe built to showcase the menu and give visitors a clean browsing experience. Built as a real restaurant site, not a practice exercise.',
+        cats: ['WEB', 'REACT'],
+    },
+    'furqan-svg.github.io': {
+        title: 'This Portfolio',
+        desc: 'My personal portfolio site — built with vanilla HTML, CSS, and JavaScript, featuring a terminal-inspired UI, live GitHub project feed, and multi-language support.',
+        cats: ['WEB', 'PORTFOLIO'],
+    },
+};
+
+// Ordered list of repos to feature on the projects page. Edit to curate.
+const FEATURED_ORDER = [
+    'foundational-learning-rescue',
+    'Kebab-Terminal',
+    'furqan-svg.github.io',
+];
+
+const CONFIG = {
+    githubUser: 'furqan-svg', // Replace with your actual GitHub username
+    mediumUser: 'furqan-svg', // Replace with your actual Medium username
+    maxRepos: 3,
+    maxArticles: 8
+};
+
+// --- THEME SWITCHER LOGIC ---
+function initThemeToggle() {
+    const toggleBtn = document.getElementById('theme-toggle');
+    if (!toggleBtn) return;
+
+    // Load saved preference
+    const currentTheme = localStorage.getItem('theme');
+    if (currentTheme) {
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        toggleBtn.innerText = currentTheme === 'light' ? '☾' : '☀';
+    } else {
+        // Set default to dark and icon to sun
+        document.documentElement.setAttribute('data-theme', 'dark');
+        toggleBtn.innerText = '☀';
+    }
+
+    // Handle Click
+    toggleBtn.addEventListener('click', function () {
+        let theme = document.documentElement.getAttribute('data-theme');
+
+        if (theme === 'light') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            localStorage.setItem('theme', 'dark');
+            toggleBtn.innerText = '☀';
+        } else {
+            document.documentElement.setAttribute('data-theme', 'light');
+            localStorage.setItem('theme', 'light');
+            toggleBtn.innerText = '☾';
+        }
+    });
+}
+
+// --- NAVIGATION ENHANCEMENTS (Active Link & Smart Scroll) ---
+function initNavEnhancements() {
+    // 1. Highlight Current Page
+    const menuItems = document.querySelectorAll('.nav-links a');
+    const path = window.location.pathname.split('/').pop() || 'index.html'; // Get the page filename
+
+    menuItems.forEach(item => {
+        const itemPath = item.href.split('/').pop() || 'index.html';
+        if (itemPath === path) {
+            item.classList.add('active');
+        }
+    });
+
+    // 2. Smart Scroll (Hide/Show Navbar)
+    let lastScrollTop = 0;
+    const navbar = document.querySelector('nav');
+    if (!navbar) return;
+
+    window.addEventListener('scroll', function () {
+        let scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
+        // Only trigger movement if scrolling past the initial top section
+        if (scrollTop > 50) {
+            if (scrollTop > lastScrollTop) {
+                // Scrolling DOWN -> Hide Nav
+                navbar.style.transform = "translateY(-100%)";
+            } else {
+                // Scrolling UP -> Show Nav
+                navbar.style.transform = "translateY(0)";
+            }
+        } else {
+            // Always show nav at the very top
+            navbar.style.transform = "translateY(0)";
+        }
+        lastScrollTop = scrollTop;
+    }, { passive: true }); // Use passive listener for performance
+}
+
+// --- GITHUB FETCHER ---
+
+// Cache of raw GitHub data + a reference to the container so we can
+// re-render in place when the language changes without re-hitting the API.
+let _reposCache = null;
+
+function renderRepos() {
+    const container = document.getElementById('repo-grid');
+    if (!container || !_reposCache) return;
+
+    const byName = _reposCache;
+
+    const featured = FEATURED_ORDER
+        .map(name => {
+            const repo = byName[name];
+            if (!repo) return null;
+            const meta = PROJECT_META[name] || {};
+            // Prefer localized title/desc from i18n; fall back to meta then repo.
+            const loc = (window.i18n && window.i18n.getProject)
+                ? window.i18n.getProject(name)
+                : null;
+            return {
+                name,
+                title: (loc && loc.title) || meta.title || name,
+                desc: (loc && loc.desc) || meta.desc || repo.description || 'No description provided.',
+                cats: meta.cats || [(repo.language || 'Code').toUpperCase()],
+                tags: REPO_TAGS[name] || [],
+                html_url: repo.html_url,
+                homepage: repo.homepage,
+                stars: repo.stargazers_count,
+                forks: repo.forks_count,
+            };
+        })
+        .filter(Boolean);
+
+    container.innerHTML = '';
+
+    // Link labels are themselves localizable.
+    const liveLabel = (window.i18n && window.i18n.t) ? window.i18n.t('projects.live_link') : 'Live\u00a0\u2197';
+    const sourceLabel = (window.i18n && window.i18n.t) ? window.i18n.t('projects.source_link') : 'GitHub\u00a0\u2197';
+
+    featured.forEach(p => {
+        const card = document.createElement('article');
+        card.className = 'v1-card';
+
+        const catsHtml = p.cats
+            .map((c, i) => (i === 0 ? '' : '<span class="v1-cats-sep">·</span>') + `<span class="v1-cat">${c}</span>`)
+            .join('');
+
+        const tagsHtml = (p.tags || [])
+            .map(t => `<span class="tag-${t.category}">${t.label}</span>`)
+            .join('');
+
+        const liveLink = (p.homepage && p.homepage.trim())
+            ? `<a href="${p.homepage}" target="_blank" rel="noopener" class="v1-link">${liveLabel}</a>`
+            : '';
+        const sourceLink = `<a href="${p.html_url}" target="_blank" rel="noopener" class="v1-link">${sourceLabel}</a>`;
+
+        card.innerHTML = `
+            <div class="v1-corner v1-corner-tl">+</div>
+            <div class="v1-corner v1-corner-br">+</div>
+            <header class="v1-header">
+                <div class="v1-cats">${catsHtml}</div>
+                <div class="v1-links">${liveLink}${sourceLink}</div>
+            </header>
+            <h3 class="v1-title">${p.title}</h3>
+            <p class="v1-desc">${p.desc}</p>
+            ${tagsHtml ? `<div class="v1-tags">${tagsHtml}</div>` : ''}
+        `;
+
+        container.appendChild(card);
+    });
+
+    // Trigger scroll reveal on dynamically injected cards
+    if (typeof window.observeRevealItems === 'function') {
+        window.observeRevealItems(container);
+    }
+}
+
+// Session cache helpers — avoid re-hitting APIs on every navigation and
+// survive GitHub's 60 req/h unauthenticated rate limit.
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function cacheGet(key) {
+    try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) return null;
+        const { ts, data } = JSON.parse(raw);
+        if (Date.now() - ts > CACHE_TTL_MS) return null;
+        return data;
+    } catch (_) {
+        return null;
+    }
+}
+
+function cacheSet(key, data) {
+    try {
+        sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+    } catch (_) { /* storage full/blocked — not fatal */ }
+}
+
+async function loadRepos() {
+    const container = document.getElementById('repo-grid');
+    if (!container) return; // Stop if we aren't on the projects page
+
+    // 1. Render instantly from curated metadata — no network needed.
+    //    html_url is derivable; stars/homepage get hydrated below.
+    _reposCache = Object.fromEntries(FEATURED_ORDER.map(name => [name, {
+        name,
+        html_url: `https://github.com/${CONFIG.githubUser}/${name}`,
+        description: null,
+        homepage: null,
+        stargazers_count: null,
+        forks_count: null,
+    }]));
+    renderRepos();
+
+    // 2. Hydrate from GitHub (cache-first) for live stars + homepage links.
+    const cached = cacheGet('gh-repos-v1');
+    if (cached) {
+        _reposCache = cached;
+        renderRepos();
+        return;
+    }
+
+    try {
+        const response = await fetch(`https://api.github.com/users/${CONFIG.githubUser}/repos?per_page=100&type=owner`);
+        if (!response.ok) throw new Error(`GitHub API ${response.status}`);
+        const data = await response.json();
+        _reposCache = Object.fromEntries(data.map(r => [r.name, {
+            name: r.name,
+            html_url: r.html_url,
+            description: r.description,
+            homepage: r.homepage,
+            stargazers_count: r.stargazers_count,
+            forks_count: r.forks_count,
+        }]));
+        cacheSet('gh-repos-v1', _reposCache);
+        renderRepos();
+    } catch (_) {
+        // Curated render already on screen — hydration failure is invisible.
+    }
+}
+
+// --- MEDIUM FETCHER (Card Grid Style) ---
+
+function extractFirstImage(html) {
+    const match = html.match(/<img[^>]+src="([^"]+)"/);
+    return match ? match[1] : null;
+}
+
+function extractTagContent(block, tagName) {
+    const pattern = new RegExp(`<${tagName}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tagName}>`, 'i');
+    const match = block.match(pattern);
+    return match ? match[1] : '';
+}
+
+function articleTagClass(label) {
+    const l = label.toLowerCase();
+    if (['llm', 'gpt', 'generative', 'nlp', 'natural language', 'text classification', 'rag', 'transformer', 'diffusion', 'chatgpt', 'openai', 'reasoning'].some(k => l.includes(k))) return 'tag-nlp';
+    if (['machine learning', 'deep learning', 'neural', 'model', 'classification', 'regression', 'prediction'].some(k => l.includes(k))) return 'tag-ml';
+    if (['data engineering', 'spark', 'airflow', 'pipeline', 'etl', 'sql', 'docker', 'engineering'].some(k => l.includes(k))) return 'tag-engineering';
+    if (['cloud', 'aws', 'gcp', 'azure', 'google cloud'].some(k => l.includes(k))) return 'tag-cloud';
+    return 'tag-analytics';
+}
+
+// Try multiple CORS proxies in order; return raw XML text or throw.
+async function fetchRssXml(rssUrl) {
+    // Each entry: { url: string, extractXml: (response) => Promise<string> }
+    const proxies = [
+        {
+            // corsproxy.io — returns the raw content directly
+            url: `https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`,
+            extractXml: (r) => r.text()
+        },
+        {
+            // allorigins.win — returns JSON { contents: "..." }
+            url: `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`,
+            extractXml: async (r) => { const d = await r.json(); return d.contents || ''; }
+        },
+        {
+            // codetabs — returns raw content
+            url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`,
+            extractXml: (r) => r.text()
+        }
+    ];
+
+    for (const proxy of proxies) {
+        try {
+            const response = await fetch(proxy.url, { signal: AbortSignal.timeout(8000) });
+            if (!response.ok) continue;
+            const xml = await proxy.extractXml(response);
+            if (xml && xml.includes('<item>')) return xml;
+        } catch (_) {
+            // try next proxy
+        }
+    }
+    throw new Error('All proxies failed to reach the Medium RSS feed');
+}
+
+async function loadMedium() {
+    const container = document.getElementById('blog-list');
+    if (!container) return; // Stop if we aren't on the blog page
+
+    const rssUrl = `https://medium.com/feed/@${CONFIG.mediumUser}`;
+
+    try {
+        let xmlText = cacheGet('medium-rss-v1');
+        if (!xmlText) {
+            xmlText = await fetchRssXml(rssUrl);
+            cacheSet('medium-rss-v1', xmlText);
+        }
+
+        // Parse the RSS XML directly in the browser
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(xmlText, 'text/xml');
+        const items = Array.from(xml.querySelectorAll('item'));
+
+        if (!items.length) throw new Error('No articles found in feed');
+
+        // Pre-extract content:encoded per item from raw XML to avoid namespace issues.
+        // Split on <item> so each block belongs to exactly one item (no index drift).
+        const rawItemBlocks = xmlText.split(/<item[\s>]/).slice(1);
+        const contentBlocks = rawItemBlocks.map(block => {
+            // Medium feeds can use either <content:encoded> or <description> for image markup.
+            const encoded = extractTagContent(block, 'content:encoded');
+            if (encoded) return encoded;
+
+            const description = extractTagContent(block, 'description');
+            return description || '';
+        });
+
+        container.innerHTML = '';
+
+        items.slice(0, CONFIG.maxArticles).forEach((item, idx) => {
+            const title = item.querySelector('title')?.textContent?.trim() || 'Untitled';
+            const linkUrl = item.querySelector('link')?.nextSibling?.nodeValue?.trim()
+                || item.querySelector('guid')?.textContent?.trim()
+                || '#';
+
+            const pubDate = new Date(item.querySelector('pubDate')?.textContent || Date.now());
+            const dateStr = pubDate.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
+
+            // Extract featured image from pre-parsed content:encoded block
+            const contentHtml = contentBlocks[idx] || '';
+            const imgUrl = extractFirstImage(contentHtml);
+
+            // Extract categories/tags
+            const categories = Array.from(item.querySelectorAll('category'))
+                .map(c => c.textContent.trim())
+                .filter(Boolean);
+
+            const tagsHtml = categories.slice(0, 4)
+                .map(c => `<span class="${articleTagClass(c)}">${c}</span>`)
+                .join('');
+
+            const card = document.createElement('article');
+            card.className = 'blog-card';
+            const firstCategory = categories[0] || '';
+            const overlayTag = firstCategory
+                ? `<span class="blog-card-tag-overlay">${firstCategory}</span>`
+                : '';
+
+            card.innerHTML = `
+                <a href="${linkUrl}" target="_blank" rel="noopener" class="blog-card-link">
+                    ${imgUrl
+                    ? `<div class="blog-card-img">${overlayTag}<img src="${imgUrl}" alt="${title}" loading="lazy"></div>`
+                    : `<div class="blog-card-img blog-card-img--empty">${overlayTag}</div>`}
+                    <div class="blog-card-body">
+                        <span class="blog-date">${dateStr}</span>
+                        <h3 class="blog-title">${title}</h3>
+                        ${tagsHtml ? `<div class="blog-tags">${tagsHtml}</div>` : ''}
+                    </div>
+                </a>
+            `;
+
+            container.appendChild(card);
+        });
+
+        // Trigger scroll reveal on dynamically injected blog cards
+        if (typeof window.observeRevealItems === 'function') {
+            window.observeRevealItems(container);
+        }
+
+    } catch (error) {
+        container.innerHTML = '';
+        const msg = document.createElement('p');
+        msg.className = 'error-msg';
+        msg.innerHTML = `[ERROR] Could not reach the Medium feed right now.<br>Read everything directly on <a href="https://medium.com/@${CONFIG.mediumUser}" target="_blank" rel="noopener">medium.com/@${CONFIG.mediumUser} ↗</a>`;
+        container.appendChild(msg);
+    }
+}
+
+// --- EXPERIENCE FETCHER ---
+// Pulls localized entries from window.i18n.getExperience() and re-renders on langchange.
+function renderExperience() {
+    const container = document.getElementById('cv-timeline');
+    if (!container) return;
+
+    const data = (window.i18n && window.i18n.getExperience)
+        ? window.i18n.getExperience()
+        : [];
+
+    if (!data.length) {
+        container.innerHTML = `<p class="error-msg">Error loading experience data.</p>`;
+        return;
+    }
+
+    container.innerHTML = '';
+
+    data.forEach(job => {
+        const item = document.createElement('article');
+        item.className = 'timeline-item';
+
+        const achievementsList = (job.achievements || [])
+            .map(ach => `<li>${ach}</li>`)
+            .join('');
+
+        const companyName = job.companyDisplay || job.company;
+        const companyNote = job.companyNote ? `<span class="company-note">(${job.companyNote})</span>` : '';
+        const companyLink = job.companyUrl
+            ? `<a href="${job.companyUrl}" target="_blank" rel="noopener noreferrer" class="company-link" aria-label="Visit ${companyName} website">${companyName}</a>`
+            : `<span class="company-link company-link--text">${companyName}</span>`;
+
+        item.innerHTML = `
+            <div class="timeline-content">
+                <div class="timeline-text">
+                    <span class="job-date">${job.period}</span>
+                    <div class="job-header">
+                        <div>
+                            <h3 class="job-title">${job.role}</h3>
+                            <p class="company-meta">
+                                @ ${companyLink}
+                                ${companyNote}
+                            </p>
+                        </div>
+                    </div>
+                    <p class="card-desc">
+                        ${job.description}
+                    </p>
+                    <ul class="job-achievements">
+                        ${achievementsList}
+                    </ul>
+                </div>
+                <div class="timeline-logo">
+                    <img src="${job.logo}" alt="${companyName} logo" class="company-logo" loading="lazy" decoding="async">
+                </div>
+            </div>
+        `;
+
+        container.appendChild(item);
+    });
+
+    if (typeof window.observeRevealItems === 'function') {
+        window.observeRevealItems(container);
+    }
+}
+
+function loadExperience() {
+    renderExperience();
+}
+
+// --- PRINT BUTTON LOGIC ---
+function initPrintButton() {
+    const printBtn = document.getElementById('print-btn');
+    if (!printBtn) return;
+
+    printBtn.addEventListener('click', () => {
+        const resumePdfPath = printBtn.dataset.resumePdf || 'content/resume_2026.pdf';
+
+        const tempLink = document.createElement('a');
+        tempLink.href = resumePdfPath;
+        tempLink.setAttribute('download', 'Syed_Furqan_2026.pdf');
+        tempLink.setAttribute('target', '_blank');
+        tempLink.setAttribute('rel', 'noopener');
+        document.body.appendChild(tempLink);
+        tempLink.click();
+        tempLink.remove();
+    });
+}
+
+// --- HAMBURGER MENU ---
+function initHamburgerMenu() {
+    const menuToggle = document.getElementById('menu-toggle');
+    const navLinks = document.querySelector('.nav-links');
+    if (!menuToggle || !navLinks) return;
+
+    menuToggle.addEventListener('click', () => {
+        const isOpen = navLinks.classList.toggle('open');
+        menuToggle.textContent = isOpen ? '✕' : '☰';
+        menuToggle.setAttribute('aria-expanded', isOpen);
+    });
+
+    // Close menu when a nav link is clicked (single-page navigation)
+    navLinks.querySelectorAll('a').forEach(link => {
+        link.addEventListener('click', () => {
+            navLinks.classList.remove('open');
+            menuToggle.textContent = '☰';
+            menuToggle.setAttribute('aria-expanded', 'false');
+        });
+    });
+}
+
+// --- MAGNETIC HOVER ---
+// Buttons/icons subtly follow the cursor. Skipped on touch devices
+// and when the user prefers reduced motion.
+function initMagneticButtons() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (window.matchMedia('(pointer: coarse)').matches) return;
+
+    const STRENGTH = 5; // max px offset
+    document.querySelectorAll('.btn, .proj-card-ghost, .social-icon, #theme-toggle').forEach(el => {
+        el.classList.add('magnetic');
+        el.addEventListener('pointermove', (ev) => {
+            const r = el.getBoundingClientRect();
+            const dx = (ev.clientX - r.left - r.width / 2) / (r.width / 2);
+            const dy = (ev.clientY - r.top - r.height / 2) / (r.height / 2);
+            el.style.transform = `translate(${dx * STRENGTH}px, ${dy * STRENGTH}px)`;
+        });
+        el.addEventListener('pointerleave', () => {
+            el.style.transform = '';
+        });
+    });
+}
+
+// --- SCROLL PROGRESS FALLBACK ---
+// CSS scroll-driven animation handles this in modern browsers;
+// this JS fallback covers the rest.
+function initScrollProgressFallback() {
+    if (CSS.supports && CSS.supports('animation-timeline: scroll()')) return;
+    const bar = document.querySelector('.scroll-progress');
+    if (!bar) return;
+
+    let ticking = false;
+    function update() {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        const ratio = max > 0 ? (window.scrollY / max) : 0;
+        bar.style.transform = `scaleX(${Math.min(1, Math.max(0, ratio))})`;
+        ticking = false;
+    }
+    window.addEventListener('scroll', () => {
+        if (!ticking) {
+            ticking = true;
+            requestAnimationFrame(update);
+        }
+    }, { passive: true });
+    update();
+}
+
+// Initialize all dynamic loading and functionality
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof initParticleNetwork === 'function') initParticleNetwork();
+    initThemeToggle();
+    initHamburgerMenu();
+    initNavEnhancements();
+    loadRepos();
+    loadMedium();
+    loadExperience();
+    initPrintButton();
+    initMagneticButtons();
+    initScrollProgressFallback();
+});
+
+// Re-render language-dependent sections when the user switches language.
+// GitHub data is cached, so repo re-render is free; experience is synchronous.
+window.addEventListener('langchange', () => {
+    renderRepos();
+    renderExperience();
+});
